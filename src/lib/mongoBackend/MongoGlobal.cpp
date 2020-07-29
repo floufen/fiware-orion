@@ -1953,7 +1953,8 @@ bool registrationsQuery
   int                                 offset,
   int                                 limit,
   bool                                details,
-  long long*                          countP
+  long long*                          countP,
+  const Restriction*                  res
 )
 {
   // query structure:
@@ -2052,6 +2053,72 @@ bool registrationsQuery
   if (servicePathFilterNeeded(servicePathV))
   {
     queryBuilder.appendElements(fillQueryServicePath(REG_SERVICE_PATH, servicePathV));
+  }
+
+
+  if ( res != NULL )
+  {
+    unsigned int          geoScopes = 0;
+    for (unsigned int ix = 0; ix < res->scopeVector.size(); ++ix)
+    {
+      const Scope* scopeP = res->scopeVector[ix];
+      
+      if (scopeP->type == FIWARE_LOCATION ||
+               scopeP->type == FIWARE_LOCATION_DEPRECATED ||
+               scopeP->type == FIWARE_LOCATION_V2)
+      {
+        geoScopes++;
+        if (geoScopes > 1)
+        {
+          alarmMgr.badInput(clientIp, "current version supports only one area scope, extra geoScope is ignored");
+        }
+        else
+        {
+          BSONObj areaQuery;
+
+          bool result;
+          if (scopeP->type == FIWARE_LOCATION_V2)
+          {
+            result = processAreaScopeV2(scopeP, &areaQuery);
+          }
+          else  // FIWARE Location NGSIv1 (legacy)
+          {
+            result = processAreaScope(scopeP, &areaQuery);
+          }
+
+          if (result)
+          {
+            std::string locCoords = ENT_LOCATION "." ENT_LOCATION_COORDS;
+            queryBuilder.append(locCoords, areaQuery);
+          }
+        }
+      }
+      else if (scopeP->type == SCOPE_TYPE_SIMPLE_QUERY)
+      {
+        if (scopeP->stringFilterP)
+        {
+          for (unsigned int ix = 0; ix < scopeP->stringFilterP->mongoFilters.size(); ++ix)
+          {
+            queryBuilder.appendElements(scopeP->stringFilterP->mongoFilters[ix]);
+          }
+        }
+      }
+      else if (scopeP->type == SCOPE_TYPE_SIMPLE_QUERY_MD)
+      {
+        if (scopeP->mdStringFilterP)
+        {
+          for (unsigned int ix = 0; ix < scopeP->mdStringFilterP->mongoFilters.size(); ++ix)
+          {
+            queryBuilder.appendElements(scopeP->mdStringFilterP->mongoFilters[ix]);
+          }
+        }
+      }
+      else
+      {
+        std::string details = std::string("unknown scope type '") + scopeP->type + "', ignoring";
+        alarmMgr.badInput(clientIp, details);
+      }
+    }
   }
 
 
